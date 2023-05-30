@@ -1,59 +1,61 @@
 import random
-from discord_webhook import DiscordWebhook, DiscordEmbed
+from discord import Webhook, Embed
 
 global lastSent
-global lastHook
 global lastEmbed
 
 
-def post_to_discord(subject, webhook_url, message, routeName):
-    photosFile = open("photos.txt", "r")
-    photo = random.choice(photosFile.read().split("\n"))
-    photosFile.close()
+async def post_to_discord(subject, webhook_url, message, routeName, session, thread=None):
 
-    webhook = DiscordWebhook(url=webhook_url, rate_limit_retry=True)
-
-    embed = DiscordEmbed(title=subject, description=message)
-    embed.set_image(url=photo)
-    embed.set_author(name=routeName)
-    embed.set_footer(text="Carrier Administration and Traversal System")
-
-    webhook.add_embed(embed)
-
-
-def post_with_fields(subject, webhook_url, message, routeName, carrierStage, maintenanceStage):
     global lastSent
-    global lastHook
-    global lastEmbed
+    photo = getPhoto()
 
     try:
-        photosFile = open("photos.txt", "r")
-        photo = random.choice(photosFile.read().split("\n"))
-        photosFile.close()
+        webhook = Webhook.from_url(webhook_url, session=session)
 
-        webhook = DiscordWebhook(url=webhook_url, rate_limit_retry=True)
-
-        embed = DiscordEmbed(title=subject, description=message)
-        embed.set_image(url=photo)
-        embed.set_author(name=routeName)
+        embed = Embed(title=subject, description=message)
         embed.set_footer(text="Carrier Administration and Traversal System")
+        embed.set_author(name=routeName)
+        embed.set_image(url=photo)
 
-        embed.add_embed_field(name="Jump stage", value=carrierStage)
-        embed.add_embed_field(name="Maintenance stage", value=maintenanceStage)
+        if (thread != None):
+            lastSent = await webhook.send(embed=embed, wait=True, thread=thread)
+        else:
+            lastSent = await webhook.send(embed=embed, wait=True)
 
-        lastEmbed = embed
-
-        webhook.add_embed(embed)
-
-        lastSent = webhook.execute()
-        lastHook = webhook
     except:
         print("Discord webhook not set up")
 
 
-def update_fields(carrierStage, maintenanceStage):
+async def post_with_fields(subject, webhook_url, message, routeName, carrierStage, maintenanceStage, session, thread=None):
     global lastSent
-    global lastHook
+    global lastEmbed
+    photo = getPhoto()
+
+    try:
+        webhook = Webhook.from_url(webhook_url, session=session)
+
+        lastEmbed = embed = Embed(title=subject, description=message)
+        embed.set_image(url=photo)
+        embed.set_author(name=routeName)
+        embed.set_footer(text="Carrier Administration and Traversal System")
+
+        embed.add_field(name="Jump stage", value=carrierStage)
+        embed.add_field(name="Maintenance stage", value=maintenanceStage)
+
+        webhook.add_embed(embed)
+
+        if (thread != None):
+            lastSent = await webhook.send(embed=embed, wait=True, thread=thread)
+        else:
+            lastSent = await webhook.send(embed=embed, wait=True)
+
+    except:
+        print("Discord webhook not set up")
+
+
+async def update_fields(carrierStage, maintenanceStage):
+    global lastSent
     global lastEmbed
 
     try:
@@ -87,17 +89,17 @@ def update_fields(carrierStage, maintenanceStage):
                 new_maintenance_stage += stage + "\n"
             i += 1
 
-        lastHook.remove_embeds()
+        lastEmbed.clear_fields()
 
-        lastEmbed.del_embed_field(0)
-        lastEmbed.del_embed_field(0)
+        lastEmbed.add_field(name="Jump stage", value=new_carrier_stage)
+        lastEmbed.add_field(name="Maintenance stage",
+                            value=new_maintenance_stage)
 
-        lastEmbed.add_embed_field(name="Jump stage", value=new_carrier_stage)
-        lastEmbed.add_embed_field(
-            name="Maintenance stage", value=new_maintenance_stage)
-
-        lastHook.add_embed(lastEmbed)
-
-        lastHook.edit(lastSent)
+        await lastSent.edit(embed=lastEmbed)
     except:
         print("Discord webhook not set up")
+
+
+def getPhoto():
+    with open("photos.txt", "r") as photosFile:
+        return random.choice(photosFile.read().split("\n"))

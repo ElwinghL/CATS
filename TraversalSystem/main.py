@@ -29,6 +29,7 @@ import ctypes
 
 import journalwatcher
 from discordhandler import post_to_discord, post_with_fields, update_fields
+from discord import Object
 from screenreader import time_until_jump
 
 import pygetwindow as gw
@@ -54,9 +55,14 @@ webhook_url = ""
 global journal_directory
 journal_directory = ""
 
+global thread
+thread = None
+
+global session
 
 # Get the screen resolution
-screen_width, screen_height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+screen_width, screen_height = user32.GetSystemMetrics(
+    0), user32.GetSystemMetrics(1)
 
 # Get the ratio of the screen resolution to 1920x1080
 global width_ratio
@@ -65,7 +71,6 @@ width_ratio = screen_width / 1920
 height_ratio = screen_height / 1080
 
 print("Screen resolution: " + str(screen_width) + "x" + str(screen_height))
-
 
 
 def load_settings():
@@ -83,6 +88,9 @@ def load_settings():
                 if line.startswith("webhook_url="):
                     print(line)
                     webhook_url = line.split("=")[1]
+                if line.startswith("thread_id="):
+                    print(line)
+                    thread = Object(id=line.split("=")[1])
                 if line.startswith("journal_directory="):
                     print(line)
                     journal_directory = line.split("=")[1]
@@ -102,12 +110,12 @@ def load_settings():
                   "- The journal directory is a valid directory for your operating system, and contains the Elite"
                   " Dangerous journal files.")
 
-
     except:
-        settingsFile = open("settings.txt", "w+")
-        settingsFile.write("webhook_url=\n"
-                           "journal_directory=\n"
-                           "tritium_slot=\n")
+        with open("settings.txt", "w+") as settingsFile:
+            settingsFile.write("webhook_url=\n"
+                               "thread_id=\n"
+                               "journal_directory=\n"
+                               "tritium_slot=\n")
 
         print("Settings file created, please set up and run again")
 
@@ -120,7 +128,8 @@ def latest_journal():
                            os.listdir(dir_name))
     # Sort list of files based on last modification time in ascending order
     list_of_files = sorted(list_of_files,
-                           key=lambda x: os.path.getmtime(os.path.join(dir_name, x))
+                           key=lambda x: os.path.getmtime(
+                               os.path.join(dir_name, x))
                            )
     list_of_files.reverse()
 
@@ -263,237 +272,245 @@ def jump_to_system(system_name):
 global lineNo
 
 
-def main_loop():
+async def main_loop():
     global lineNo
     global tritium_slot
     global webhook_url
     global journal_directory
     global route_file
+    global session
 
     load_settings()
 
     time.sleep(5)
 
-    latestJournal = latest_journal()
+    async with aiohttp.ClientSession() as session:
 
-    currentTime = datetime.datetime.now(datetime.timezone.utc)
-    arrivalTime = currentTime
+        latestJournal = latest_journal()
 
-    th = threading.Thread(target=process_journal, args=(latestJournal,))
-    th.start()
+        currentTime = datetime.datetime.now(datetime.timezone.utc)
+        arrivalTime = currentTime
 
-    # win = gw.getWindowsWithTitle(window_name)[0]
-    # win.activate()
+        th = threading.Thread(target=process_journal,
+                              args=(latestJournal, session,))
+        th.start()
 
-    lineNo = 0
-    saved = False
-
-    if os.path.exists("save.txt"):
-        print("Save file found. Setting up...")
-        lineNo = int((open("save.txt", "r")).read())
-        os.remove("save.txt")
-
-        saved = True
-
-    print("Beginning in 5...")
-    time.sleep(5)
-    # print("Stocking initial tritium...")
-    # restock_tritium()
-
-    routeFile = open(route_file, "r")
-    route = routeFile.read()
-
-    finalLine = route.split("\n")[len(route.split("\n")) - 1]
-    jumpsLeft = len(route.split("\n")) + 1
-
-    d = 1;
-    while finalLine == "" or finalLine == "\n":
-        d += 1
-        finalLine = route.split("\n")[len(route.split("\n")) - d]
-
-    routeName = "Carrier Updates: Route to " + finalLine
-
-    print("Destination: " + finalLine)
-
-    a1 = route.split("\n")
-    a = []
-
-    delta = datetime.timedelta()
-    for i in a1:
-        if (not i == "") and (not i == "\n"):
-            a.append(i)
-        else:
-            continue
-        if a1.index(i) < lineNo: continue
-        delta = delta + datetime.timedelta(seconds=1320)
-    arrivalTime = arrivalTime + delta
-
-    doneFirst = False
-    for i in range(len(a)):
-        jumpsLeft -= 1
-        if i < lineNo: continue
-
-        line = a[i]
-
+        # win = gw.getWindowsWithTitle(window_name)[0]
         # win.activate()
-        time.sleep(3)
 
-        print("Next stop: " + line)
-        print("Beginning navigation.")
-        print("Please do not change windows until navigation is complete.")
+        lineNo = 0
+        saved = False
 
-        print("ETA: " + arrivalTime.strftime("%d %b %Y %H:%M %Z"))
+        if os.path.exists("save.txt"):
+            print("Save file found. Setting up...")
+            lineNo = int((open("save.txt", "r")).read())
+            os.remove("save.txt")
 
-        try:
-            timeToJump = jump_to_system(line)
-            while timeToJump == 0: timeToJump = jump_to_system(line)
-            print("Navigation complete. Jump occurs in " + timeToJump + ". Counting down...")
+            saved = True
 
-            hours = int(timeToJump.split(':')[0])
-            minutes = int(timeToJump.split(':')[1])
-            seconds = int(timeToJump.split(':')[2])
+        print("Beginning in 5...")
+        time.sleep(5)
+        # print("Stocking initial tritium...")
+        # restock_tritium()
 
-            totalTime = (hours * 3600) + (minutes * 60) + seconds - 12
+        routeFile = open(route_file, "r")
+        route = routeFile.read()
 
-            if totalTime > 900:
-                arrivalTime = arrivalTime + datetime.timedelta(seconds=totalTime - 900)
-                print(arrivalTime.strftime("%d %b %Y %H:%M %Z"))
+        finalLine = route.split("\n")[len(route.split("\n")) - 1]
+        jumpsLeft = len(route.split("\n")) + 1
 
-            if doneFirst:
-                previous_system = a[i - 1]
-                post_with_fields("Carrier Jump", webhook_url,
-                                 "Jump to " + previous_system + " successful.\n"
-                                                                "The carrier is now jumping to the " + line + " system.\n"
-                                                                                                              "Jumps remaining: " + str(
-                                     jumpsLeft) +
-                                 "\nEstimated time until next jump: " + timeToJump +
-                                 "\nEstimated time of route completion: " + arrivalTime.strftime("%d %b %Y %H:%M %Z") +
-                                 "\no7", routeName, "Wait...",
-                                 "Wait...")
-                time.sleep(2)
-                update_fields(0, 0)
+        d = 1
+        while finalLine == "" or finalLine == "\n":
+            d += 1
+            finalLine = route.split("\n")[len(route.split("\n")) - d]
+
+        routeName = "Carrier Updates: Route to " + finalLine
+
+        print("Destination: " + finalLine)
+
+        a1 = route.split("\n")
+        a = []
+
+        delta = datetime.timedelta()
+        for i in a1:
+            if (not i == "") and (not i == "\n"):
+                a.append(i)
             else:
-                if not saved:
-                    post_with_fields("Flight Begun", webhook_url,
-                                     "The Flight Computer has begun navigating the Carrier.\n"
-                                     "The Carrier's route is as follows:\n" +
-                                     route +
-                                     "\nEstimated time until first jump: " + timeToJump +
-                                     "\nEstimated time of route completion: " + arrivalTime.strftime(
-                                         "%d %b %Y %H:%M %Z") +
+                continue
+            if a1.index(i) < lineNo:
+                continue
+            delta = delta + datetime.timedelta(seconds=1320)
+        arrivalTime = arrivalTime + delta
+
+        doneFirst = False
+        for i in range(len(a)):
+            jumpsLeft -= 1
+            if i < lineNo:
+                continue
+
+            line = a[i]
+
+            # win.activate()
+            time.sleep(3)
+
+            print("Next stop: " + line)
+            print("Beginning navigation.")
+            print("Please do not change windows until navigation is complete.")
+
+            print("ETA: " + arrivalTime.strftime("%d %b %Y %H:%M %Z"))
+
+            try:
+                timeToJump = jump_to_system(line)
+                while timeToJump == 0:
+                    timeToJump = jump_to_system(line)
+                print("Navigation complete. Jump occurs in " +
+                      timeToJump + ". Counting down...")
+
+                hours = int(timeToJump.split(':')[0])
+                minutes = int(timeToJump.split(':')[1])
+                seconds = int(timeToJump.split(':')[2])
+
+                totalTime = (hours * 3600) + (minutes * 60) + seconds - 12
+
+                if totalTime > 900:
+                    arrivalTime = arrivalTime + \
+                        datetime.timedelta(seconds=totalTime - 900)
+                    print(arrivalTime.strftime("%d %b %Y %H:%M %Z"))
+
+                if doneFirst:
+                    previous_system = a[i - 1]
+                    post_with_fields("Carrier Jump", webhook_url,
+                                     "Jump to " + previous_system + " successful.\n"
+                                     "The carrier is now jumping to the " + line + " system.\n"
+                                     "Jumps remaining: " + str(
+                                         jumpsLeft) +
+                                     "\nEstimated time until next jump: " + timeToJump +
+                                     "\nEstimated time of route completion: " + arrivalTime.strftime("%d %b %Y %H:%M %Z") +
                                      "\no7", routeName, "Wait...",
-                                     "Wait...")
+                                     "Wait...", session, thread)
                     time.sleep(2)
                     update_fields(0, 0)
                 else:
-                    post_with_fields("Flight Resumed", webhook_url,
-                                     "The Flight Computer has resumed navigation.\n"
-                                     "Estimated time until first jump: " + timeToJump +
-                                     "\nEstimated time of route completion: " + arrivalTime.strftime(
-                                         "%d %b %Y %H:%M %Z") +
-                                     "\no7", routeName, "Wait...",
-                                     "Wait..."
-                                     )
-                    time.sleep(2)
-                    update_fields(0, 0)
+                    if not saved:
+                        post_with_fields("Flight Begun", webhook_url,
+                                         "The Flight Computer has begun navigating the Carrier.\n"
+                                         "The Carrier's route is as follows:\n" +
+                                         route +
+                                         "\nEstimated time until first jump: " + timeToJump +
+                                         "\nEstimated time of route completion: " + arrivalTime.strftime(
+                                             "%d %b %Y %H:%M %Z") +
+                                         "\no7", routeName, "Wait...",
+                                         "Wait...", session, thread)
+                        time.sleep(2)
+                        update_fields(0, 0)
+                    else:
+                        post_with_fields("Flight Resumed", webhook_url,
+                                         "The Flight Computer has resumed navigation.\n"
+                                         "Estimated time until first jump: " + timeToJump +
+                                         "\nEstimated time of route completion: " + arrivalTime.strftime(
+                                             "%d %b %Y %H:%M %Z") +
+                                         "\no7", routeName, "Wait...",
+                                         "Wait...", session, thread)
+                        time.sleep(2)
+                        update_fields(0, 0)
 
+            except Exception as e:
+                print(e)
+                print("An error has occurred. Saving progress and aborting...")
+                post_to_discord("Critical Error", webhook_url,
+                                "An error has occurred with the Flight Computer.\n"
+                                "It's possible the game has crashed, or servers were taken down.\n"
+                                "Please wait for the carrier to resume navigation.\n"
+                                "o7", routeName, session, thread)
+                print("Message sent...")
+                saveFile = open("save.txt", "w+")
+                saveFile.write(str(lineNo))
+                saveFile.close()
+                print("Progress saved...")
+                return False
 
-        except Exception as e:
-            print(e)
-            print("An error has occurred. Saving progress and aborting...")
-            post_to_discord("Critical Error", webhook_url,
-                            "An error has occurred with the Flight Computer.\n"
-                            "It's possible the game has crashed, or servers were taken down.\n"
-                            "Please wait for the carrier to resume navigation.\n"
-                            "o7", routeName)
-            print("Message sent...")
-            saveFile = open("save.txt", "w+")
-            saveFile.write(str(lineNo))
-            saveFile.close()
-            print("Progress saved...")
-            return False
-
-        while totalTime > 0:
-            print(totalTime)
-            time.sleep(1)
-
-            if totalTime == 600:
-                update_fields(1, 1)
-            elif totalTime == 200:
-                update_fields(2, 2)
-            elif totalTime == 190:
-                update_fields(2, 3)
-            elif totalTime == 144:
-                update_fields(2, 4)
-            elif totalTime == 103:
-                update_fields(2, 5)
-            elif totalTime == 90:
-                update_fields(2, 6)
-            elif totalTime == 75:
-                update_fields(2, 7)
-            elif totalTime == 60:
-                update_fields(3, 7)
-            elif totalTime == 30:
-                update_fields(4, 7)
-
-            totalTime -= 1
-
-        print("Jumping!")
-
-        update_fields(5, 7)
-
-        lineNo += 1
-
-        if not line == finalLine:
-            print("Counting down until next jump...")
-            totalTime = 362
-            while totalTime > 0:
-                print(totalTime)
-
-                if totalTime == 340:
-                    update_fields(6, 7)
-                elif totalTime == 320:
-                    update_fields(7, 7)
-                elif totalTime == 300:
-                    print("Jump complete!")
-                    update_fields(8, 7)
-                elif totalTime == 151:
-                    update_fields(8, 8)
-                elif totalTime == 100:
-                    update_fields(8, 9)
-
-                elif totalTime == 150:
-                    print("Restocking tritium...")
-                    # win.activate()
-                    time.sleep(2)
-                    th = threading.Thread(target=restock_tritium)
-                    th.start()
-
-                time.sleep(1)
-                totalTime -= 1
-            update_fields(9, 9)
-
-        else:
-            print("Counting down until jump finishes...")
-
-            update_fields(9, 9)
-
-            totalTime = 60
             while totalTime > 0:
                 print(totalTime)
                 time.sleep(1)
+
+                if totalTime == 600:
+                    update_fields(1, 1)
+                elif totalTime == 200:
+                    update_fields(2, 2)
+                elif totalTime == 190:
+                    update_fields(2, 3)
+                elif totalTime == 144:
+                    update_fields(2, 4)
+                elif totalTime == 103:
+                    update_fields(2, 5)
+                elif totalTime == 90:
+                    update_fields(2, 6)
+                elif totalTime == 75:
+                    update_fields(2, 7)
+                elif totalTime == 60:
+                    update_fields(3, 7)
+                elif totalTime == 30:
+                    update_fields(4, 7)
+
                 totalTime -= 1
 
-        doneFirst = True
+            print("Jumping!")
 
-    print("Route complete!")
-    post_to_discord("Carrier Arrived", webhook_url,
-                    "The route is complete, and the carrier has arrived at " + finalLine + ".\n"
-                                                                                           "o7", routeName)
+            update_fields(5, 7)
+
+            lineNo += 1
+
+            if not line == finalLine:
+                print("Counting down until next jump...")
+                totalTime = 362
+                while totalTime > 0:
+                    print(totalTime)
+
+                    if totalTime == 340:
+                        update_fields(6, 7)
+                    elif totalTime == 320:
+                        update_fields(7, 7)
+                    elif totalTime == 300:
+                        print("Jump complete!")
+                        update_fields(8, 7)
+                    elif totalTime == 151:
+                        update_fields(8, 8)
+                    elif totalTime == 100:
+                        update_fields(8, 9)
+
+                    elif totalTime == 150:
+                        print("Restocking tritium...")
+                        # win.activate()
+                        time.sleep(2)
+                        th = threading.Thread(target=restock_tritium)
+                        th.start()
+
+                    time.sleep(1)
+                    totalTime -= 1
+                update_fields(9, 9)
+
+            else:
+                print("Counting down until jump finishes...")
+
+                update_fields(9, 9)
+
+                totalTime = 60
+                while totalTime > 0:
+                    print(totalTime)
+                    time.sleep(1)
+                    totalTime -= 1
+
+            doneFirst = True
+
+        print("Route complete!")
+        post_to_discord("Carrier Arrived", webhook_url,
+                        "The route is complete, and the carrier has arrived at " + finalLine + ".\n"
+                        "o7", routeName, session, thread)
     return True
 
 
-def process_journal(file_name):
+def process_journal(file_name, session):
+    global thread
     while True:
         c = journalwatcher.process_journal(file_name)
         if not c:
@@ -502,7 +519,7 @@ def process_journal(file_name):
                             "An error has occurred with the Flight Computer.\n"
                             "It's possible the game has crashed, or servers were taken down.\n"
                             "Please wait for the carrier to resume navigation.\n"
-                            "o7", "")
+                            "o7", "", session, thread)
             print("Message sent...")
             saveFile = open("save.txt", "w+")
             saveFile.write(str(lineNo))
